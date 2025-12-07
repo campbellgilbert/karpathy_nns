@@ -54,6 +54,9 @@ class Value:
     
     def __rmul__(self, other):
         return self * other
+
+    def __radd__(self, other):
+        return self + other
     
     def __pow__(self, other):
         assert isinstance(other, (int, float)), 'only supporting int/float powers 4 now'
@@ -115,7 +118,7 @@ class Value:
                     build_topo(child)
                 topo.append(v)
         build_topo(self)
-        print(topo) #ordered our value object -- the last value is 0.707 which is our output, and all other nodes are laid before it
+        #print(topo) #ordered our value object -- the last value is 0.707 which is our output, and all other nodes are laid before it
         #we're just calling ._backward on al objects in a topological order
         self.grad = 1.0
         for node in reversed(topo):
@@ -242,6 +245,9 @@ class Neuron:
         out = act.__tanh__()
         #print(list(zip(self.w, x)))
         return out
+    
+    def parameters(self):
+        return self.w + [self.b]
 
 class Layer:
     def __init__(self, nin, nout):
@@ -250,6 +256,17 @@ class Layer:
     def __call__(self, x):
         outs = [n(x) for n in self.neurons]
         return outs[0] if len(outs) == 1 else outs
+    
+    def parameters(self):
+        return [p for neuron in self.neurons for p in neuron.parameters()]
+
+        params = []
+        for neuron in self.neurosn:
+            ps = neuron.parameters()
+            params.extend(ps)
+
+        return params
+
     
 class MLP:
     def __init__(self, nin, nouts):
@@ -260,6 +277,9 @@ class MLP:
         for layer in self.layers:
             x = layer(x)
         return x
+    
+    def parameters(self):
+        return [p for layer in self.layers for p in layer.parameters()]
         
 
 x = [2.0,3.0]
@@ -267,7 +287,7 @@ x = [2.0,3.0]
 n = MLP(3, [4, 4, 1])
 print(n(x))
 #great, we have a single neuron! now let's make a layer of neurons
-
+print(len(n.parameters()))
 draw_dot(n(x))
 
 #ok now we want to make a binary classifier neural net
@@ -285,8 +305,64 @@ print(ypred)
 #calculate a single number that measxures the performance of the neural net --  the loss
 #we will implement a mean squared error loss
 
-loss = [(yout - ygt)**2 for ygt, yout in zip(ys, ypred)] #pair ground truths with predictions, zip iterates over tuples of them 
+loss = sum((yout - ygt)**2 for ygt, yout in zip(ys, ypred)) #pair ground truths with predictions, zip iterates over tuples of them 
 print("loss: ", loss)
+#when yout = ground truth, prediction is target, you get 0. for now we are way off so loss is quite high
 
+loss.backward()
+print(n.layers[0].neurons[0].w[0].grad)
+print(n.layers[0].neurons[0].w[0].data)
 
+draw_dot(loss)
 
+for p in n.parameters():
+    p.data += -0.01 * p.grad #upd8 according to grad information
+    #gradient -- vector pointing in the direction of increased loss. 
+    # we want to update p.data in a small step size in the direction of the icnreased gradient
+    # nope haha! we want to decrease and minimize loss. so we do negative. andrej you silly bastard...
+ypred = [n(x) for x in xs]
+loss = sum((yout - ygt)**2 for ygt, yout in zip(ys, ypred)) #pair ground truths with predictions, zip iterates over tuples of them 
+print("loss: ", loss) #it went slightly down from last time! waowee!
+
+loss.backward()
+for p in n.parameters():
+    p.data += -0.01 * p.grad
+ypred = [n(x) for x in xs]
+loss = sum((yout - ygt)**2 for ygt, yout in zip(ys, ypred))
+print("loss: ", loss) #it keeps going down!
+
+for i in range(10):
+    loss.backward()
+    for p in n.parameters():
+        p.data += -0.01 * p.grad
+    ypred = [n(x) for x in xs]
+    loss = sum((yout - ygt)**2 for ygt, yout in zip(ys, ypred))
+    print("loss: ", loss)
+
+print(ypred) #these are now quite close to our desired values!
+
+#let's make this a little more respectable and implement an actual training loop
+print("------------")
+xs = [
+    [2.0, 3.0, -1.0],
+    [3.0, -1.0, 0.5],
+    [0.5, 1.0, 1.0],
+    [1.0, 1.0, -1.0]
+]
+ys = [1.0, -1.0, -1.0, 1.0]
+ypred = [n(x) for x in xs]
+print(ypred)
+for k in range(20):
+    #forward pass
+    ypred = [n(x) for x in xs]
+    loss = sum((yout - ygt)**2 for ygt, yout in zip(ys, ypred))
+
+    #backward pass
+    loss.backward()
+
+    #update
+    for p in n.parameters():
+        p.data += -0.05 * p.grad
+    
+    print(k, loss.data)
+print(ypred)
